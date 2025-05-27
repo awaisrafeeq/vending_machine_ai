@@ -1,0 +1,20 @@
+{
+  "input_image": "gym_guy.PNG",
+  "description": "This powerhouse looks like they're ready to flip a tire and crush their goals with flair—muscles on muscles and a determined focus!",
+  "recommended_category": "protein",
+  "products": [
+    {
+      "name": "apple",
+      "price": 5.0
+    },
+    {
+      "name": "bnana",
+      "price": 5.0
+    },
+    {
+      "name": "peach",
+      "price": 8.0
+    }
+  ],
+  "total_products": 3
+}
