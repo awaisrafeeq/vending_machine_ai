@@ -25,7 +25,7 @@ import logging
 # Load environment variables from .env file
 load_dotenv()
 # Get the API key
-api_key = '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'  # Replace with your actual OpenAI API key
+api_key = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=api_key)
 def speech_to_text(file_path):
   audio_file = open(file_path, "rb")
