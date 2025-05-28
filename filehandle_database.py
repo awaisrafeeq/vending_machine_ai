@@ -40,7 +40,7 @@ app.add_middleware(
 )
 
 # OpenAI client
-api_key = os.getenv('OPENAI_API_KEY') or 'YOUR_OPENAI_API_KEY'  # Replace with your actual OpenAI API key
+api_key = os.getenv('OPENAI_API_KEY') or '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'  # Replace with your actual OpenAI API key
 client = OpenAI(api_key=api_key)
 client = OpenAI(api_key=api_key)
 
