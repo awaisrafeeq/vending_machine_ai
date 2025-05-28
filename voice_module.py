@@ -13,7 +13,7 @@ from openai import OpenAI
 from dotenv import load_dotenv
 from pydub import AudioSegment
 from pydub.playback import play
-import sounddevice as sd
+# import sounddevice as sd
 import numpy as np
 import wave
 import io
