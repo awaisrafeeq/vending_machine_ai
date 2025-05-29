@@ -260,7 +260,7 @@ async def get_all_products():
         conn.close()
 
 @app.get("/products/category/{category_name}")
-async def get_products_by_category(category_name: str):
+async def get_products_endpoint(category_name: str):
     """Get all products for a specific category with full product details."""
     conn = get_db_connection()
     try:
