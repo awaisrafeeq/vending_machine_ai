@@ -387,6 +387,65 @@ async def analyze_image(file: UploadFile = File(...)):
             status_code=500,
             detail=f"An unexpected error occurred while processing the image: {str(e)}"
         )
+        
+@app.post("/analyze-audio")
+async def analyze_audio(file: UploadFile = File(...)):
+    # Validate content type
+    if not file.content_type or not file.content_type.startswith("audio/"):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid file type. Please upload an audio file."
+        )
+    
+    audio_data = await file.read()
+    
+    # Optional: file size limit
+    if len(audio_data) > 10 * 1024 * 1024:
+        raise HTTPException(
+            status_code=400,
+            detail="Audio file too large. Maximum size is 10MB."
+        )
+    
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
+        temp_audio.write(audio_data)
+        temp_path = temp_audio.name
+    
+    try:
+        # Convert audio to text
+        transcribed_text = speech_to_text(temp_path)
+        
+        # Get description and category tuple
+        description, category = analyze_text_with_llm(transcribed_text)
+        
+        # Get products list by category
+        products = get_products_by_category(category)
+        
+        response = {
+            "success": True,
+            "filename": file.filename,
+            "file_size_bytes": len(audio_data),
+            "transcription": transcribed_text,
+            "analysis": {
+                "description": description,
+                "recommended_category": category,
+                "products": products,
+                "total_products": len(products)
+            },
+            "message": "Audio analyzed successfully!"
+        }
+        
+        return JSONResponse(content=response)
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"An unexpected error occurred while processing the audio: {str(e)}"
+        )
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
 if __name__ == "__main__":
     import uvicorn
