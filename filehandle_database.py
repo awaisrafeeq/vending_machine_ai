@@ -13,9 +13,6 @@ import tempfile
 from typing import Dict, Any
 import logging
 
-from voice_module import speech_to_text, analyze_text_with_llm
-
-
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -40,15 +37,17 @@ app.add_middleware(
 )
 
 # OpenAI client
-api_key = os.getenv('OPENAI_API_KEY') or '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'  # Replace with your actual OpenAI API key
+api_key = os.getenv('OPENAI_API_KEY') 
 client = OpenAI(api_key=api_key)
-client = OpenAI(api_key=api_key)
+
+DATABASE = 'Newdb.db'
 
 # Database connection function
 def get_db_connection():
     """Create a new database connection for each request."""
     try:
-        conn = sqlite3.connect('Newdb.db')
+        conn = sqlite3.connect(DATABASE)
+        conn.row_factory = sqlite3.Row  # So that rows behave like dict
         return conn
     except sqlite3.Error as e:
         logger.error(f"Database connection error: {e}")
@@ -69,8 +68,8 @@ def get_available_categories() -> list:
     finally:
         conn.close()
 
-def get_products_by_category(category: str) -> list:
-    """Fetch all products for a given category."""
+def get_products_by_category_data(category: str) -> list:
+    """Fetch all products for a given category (used internally by AI analysis)."""
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
@@ -78,7 +77,7 @@ def get_products_by_category(category: str) -> list:
         products = cursor.fetchall()
         return [{"name": product[0], "price": product[1]} for product in products]
     except sqlite3.Error as e:
-        logger.error(f"Database error in get_products_by_category: {e}")
+        logger.error(f"Database error in get_products_by_category_data: {e}")
         return []
     finally:
         conn.close()
@@ -185,6 +184,8 @@ def analyze_image_with_openai(image_data: bytes) -> tuple:
         logger.error(f"Error calling OpenAI API: {e}")
         raise HTTPException(status_code=500, detail=f"AI analysis failed: {str(e)}")
 
+# ============= ENDPOINTS =============
+
 @app.get("/")
 async def root():
     """Root endpoint with API information."""
@@ -193,6 +194,9 @@ async def root():
         "endpoints": {
             "/analyze-image": "POST - Upload an image for analysis",
             "/categories": "GET - Get all available product categories",
+            "/products": "GET - Get all products",
+            "/products/category/{category_name}": "GET - Get products by category",
+            "/product/{product_id}": "GET - Get product by ID",
             "/health": "GET - Health check"
         }
     }
@@ -225,6 +229,95 @@ async def get_categories():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch categories: {str(e)}")
+
+@app.get("/products")
+async def get_all_products():
+    """Get all products from the database."""
+    conn = get_db_connection()
+    try:
+        products = conn.execute('SELECT * FROM Products').fetchall()
+        
+        result = []
+        for product in products:
+            product_dict = dict(product)
+            # Convert JSON fields back to Python lists/dicts
+            for field in ['images', 'flavor', 'ingredients']:
+                if product_dict.get(field):
+                    try:
+                        product_dict[field] = json.loads(product_dict[field])
+                    except json.JSONDecodeError:
+                        product_dict[field] = []
+                else:
+                    product_dict[field] = []
+            result.append(product_dict)
+
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error fetching all products: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch products: {str(e)}")
+    finally:
+        conn.close()
+
+@app.get("/products/category/{category_name}")
+async def get_products_by_category(category_name: str):
+    """Get all products for a specific category with full product details."""
+    conn = get_db_connection()
+    try:
+        products = conn.execute('SELECT * FROM Products WHERE category = ?', (category_name,)).fetchall()
+        
+        if not products:
+            raise HTTPException(status_code=404, detail=f"No products found in category '{category_name}'")
+
+        result = []
+        for product in products:
+            product_dict = dict(product)
+            for field in ['images', 'flavor', 'ingredients']:
+                if product_dict.get(field):
+                    try:
+                        product_dict[field] = json.loads(product_dict[field])
+                    except json.JSONDecodeError:
+                        product_dict[field] = []
+                else:
+                    product_dict[field] = []
+            result.append(product_dict)
+
+        return JSONResponse(content=result)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching products by category: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch products: {str(e)}")
+    finally:
+        conn.close()
+
+@app.get("/product/{product_id}")
+async def get_product(product_id: int):
+    """Get a specific product by ID."""
+    conn = get_db_connection()
+    try:
+        product = conn.execute('SELECT * FROM Products WHERE id = ?', (product_id,)).fetchone()
+        
+        if product is None:
+            raise HTTPException(status_code=404, detail="Product not found")
+
+        product_dict = dict(product)
+        for field in ['images', 'flavor', 'ingredients']:
+            if product_dict.get(field):
+                try:
+                    product_dict[field] = json.loads(product_dict[field])
+                except json.JSONDecodeError:
+                    product_dict[field] = []
+            else:
+                product_dict[field] = []
+
+        return JSONResponse(content=product_dict)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching product by ID: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch product: {str(e)}")
+    finally:
+        conn.close()
 
 @app.post("/analyze-image")
 async def analyze_image(file: UploadFile = File(...)):
@@ -267,7 +360,7 @@ async def analyze_image(file: UploadFile = File(...)):
         description, recommended_category = analyze_image_with_openai(image_data)
         
         # Get products for the recommended category
-        products = get_products_by_category(recommended_category)
+        products = get_products_by_category_data(recommended_category)
         
         # Create response
         result = {
@@ -295,99 +388,6 @@ async def analyze_image(file: UploadFile = File(...)):
             detail=f"An unexpected error occurred while processing the image: {str(e)}"
         )
 
-@app.get("/products/{category}")
-async def get_products_by_category_endpoint(category: str):
-    """Get all products for a specific category."""
-    try:
-        products = get_products_by_category(category)
-        if not products:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No products found for category: {category}"
-            )
-        
-        return {
-            "category": category,
-            "products": products,
-            "total": len(products)
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch products: {str(e)}")
-    
-
-# @app.post("/analyze-audio")
-# async def analyze_audio(file: UploadFile = File(...)):
-#     audio_data = await file.read()
-#     # Save audio temporarily, or pass directly if you modify speech_to_text for bytes
-#     temp_path = "/tmp/temp_audio.wav"
-#     with open(temp_path, "wb") as f:
-#         f.write(audio_data)
-#     # Convert audio to text
-#     transcribed_text = speech_to_text(temp_path)
-#     # Analyze text with LLM
-#     analysis_result = analyze_text_with_llm(transcribed_text)
-#     return analysis_result    
-
-
-@app.post("/analyze-audio")
-async def analyze_audio(file: UploadFile = File(...)):
-    # Optional: validate content type (audio/wav or others)
-    if not file.content_type or not file.content_type.startswith("audio/"):
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid file type. Please upload an audio file."
-        )
-    
-    audio_data = await file.read()
-    
-    # Optional: check file size limit, e.g. 10MB
-    if len(audio_data) > 10 * 1024 * 1024:
-        raise HTTPException(
-            status_code=400,
-            detail="Audio file too large. Maximum size is 10MB."
-        )
-    
-    # Save temp file for processing
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
-        temp_audio.write(audio_data)
-        temp_path = temp_audio.name
-    
-    try:
-        # Convert audio to text
-        transcribed_text = speech_to_text(temp_path)
-        
-        # Analyze text with LLM
-        analysis_result = analyze_text_with_llm(transcribed_text)
-        
-        # Build structured response
-        response = {
-            "success": True,
-            "filename": file.filename,
-            "file_size_bytes": len(audio_data),
-            "transcription": transcribed_text,
-            "analysis": analysis_result,
-            "message": "Audio analyzed successfully!"
-        }
-        
-        return JSONResponse(content=response)
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        # Log error if you have logging configured
-        # logger.error(f"Error processing audio: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"An unexpected error occurred while processing the audio: {str(e)}"
-        )
-    finally:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-
-
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
-
