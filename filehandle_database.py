@@ -330,25 +330,62 @@ async def get_products_by_category_endpoint(category: str):
 #     analysis_result = analyze_text_with_llm(transcribed_text)
 #     return analysis_result    
 
+
 @app.post("/analyze-audio")
 async def analyze_audio(file: UploadFile = File(...)):
+    # Optional: validate content type (audio/wav or others)
+    if not file.content_type or not file.content_type.startswith("audio/"):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid file type. Please upload an audio file."
+        )
+    
     audio_data = await file.read()
-    # Use tempfile for cross-platform temp file creation
-    import tempfile
+    
+    # Optional: check file size limit, e.g. 10MB
+    if len(audio_data) > 10 * 1024 * 1024:
+        raise HTTPException(
+            status_code=400,
+            detail="Audio file too large. Maximum size is 10MB."
+        )
+    
+    # Save temp file for processing
     with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
         temp_audio.write(audio_data)
         temp_path = temp_audio.name
+    
     try:
         # Convert audio to text
         transcribed_text = speech_to_text(temp_path)
+        
         # Analyze text with LLM
         analysis_result = analyze_text_with_llm(transcribed_text)
-        return analysis_result
+        
+        # Build structured response
+        response = {
+            "success": True,
+            "filename": file.filename,
+            "file_size_bytes": len(audio_data),
+            "transcription": transcribed_text,
+            "analysis": analysis_result,
+            "message": "Audio analyzed successfully!"
+        }
+        
+        return JSONResponse(content=response)
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Log error if you have logging configured
+        # logger.error(f"Error processing audio: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"An unexpected error occurred while processing the audio: {str(e)}"
+        )
     finally:
-        # Clean up the temp file
-        import os
         if os.path.exists(temp_path):
             os.remove(temp_path)
+
 
 if __name__ == "__main__":
     import uvicorn
