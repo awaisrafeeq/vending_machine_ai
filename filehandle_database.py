@@ -400,7 +400,6 @@ async def analyze_audio(file: UploadFile = File(...)):
     
     audio_data = await file.read()
     
-    # Optional: file size limit
     if len(audio_data) > 10 * 1024 * 1024:
         raise HTTPException(
             status_code=400,
@@ -412,14 +411,10 @@ async def analyze_audio(file: UploadFile = File(...)):
         temp_path = temp_audio.name
     
     try:
-        # Convert audio to text
-        transcribed_text = speech_to_text(temp_path)
+        transcribed_text = speech_to_text(temp_path)  # sync call
+        description, category = analyze_text_with_llm(transcribed_text)  # sync call
         
-        # Get description and category tuple
-        description, category = analyze_text_with_llm(transcribed_text)
-        
-        # Get products list by category
-        products = await get_products_by_category(category)
+        products = await get_products_by_category(category)  # async call
         
         response = {
             "success": True,
