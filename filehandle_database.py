@@ -12,6 +12,7 @@ import io
 import tempfile
 from typing import Dict, Any
 import logging
+from voice_module import speech_to_text, analyze_text_with_llm
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
