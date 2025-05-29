@@ -419,7 +419,7 @@ async def analyze_audio(file: UploadFile = File(...)):
         description, category = analyze_text_with_llm(transcribed_text)
         
         # Get products list by category
-        products = get_products_by_category(category)
+        products = await get_products_by_category(category)
         
         response = {
             "success": True,
