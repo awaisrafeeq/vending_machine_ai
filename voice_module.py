@@ -1,10 +1,3 @@
-# Available voices
-# alloy
-# echo
-# fable
-# onyx
-# nova
-# shimmer
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,24 +11,28 @@ import numpy as np
 import wave
 import io
 import os
-import sqlite3
 import logging
-
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+from models import Product  # Assuming this is defined in models.py
+from database import DATABASE_URL  # Assuming this is set up in database.py
 
 # Load environment variables from .env file
 load_dotenv()
 # Get the API key
-api_key = 'YOUR_OPENAI_API_KEY'  # Replace with your actual OpenAI API key
+api_key = os.getenv('OPENAI_API_KEY')
 client = OpenAI(api_key=api_key)
+
 def speech_to_text(file_path):
-  audio_file = open(file_path, "rb")
-  response = client.audio.transcriptions.create(
-      model="whisper-1",
-      file=audio_file,
-      language="en"
-  )
-  print(f"DEBUG: {response.text}")
-  return response.text
+    with open(file_path, "rb") as audio_file:
+        response = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=audio_file,
+            language="en"
+        )
+    print(f"DEBUG: {response.text}")
+    return response.text
+
 def text_to_speech(text):
     # Generate speech
     response = client.audio.speech.create(
@@ -50,6 +47,12 @@ def text_to_speech(text):
     # Convert and play the audio
     sound = AudioSegment.from_file(audio_path, format="mp3")
     play(sound)
+
+if os.getenv("RENDER") != "true":
+    import sounddevice as sd
+else:
+    sd = None  # or mock functions if needed
+
 def record_audio(filename="user_audio.wav", duration=5, samplerate=44100):
     print("Recording... Speak now!")
     audio_data = sd.rec(int(duration * samplerate), samplerate=samplerate, channels=1, dtype=np.int16)
@@ -64,7 +67,6 @@ def record_audio(filename="user_audio.wav", duration=5, samplerate=44100):
     print(f"Audio saved as {filename}")
     return filename  # Return the saved file path
 
-
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -72,9 +74,10 @@ logger = logging.getLogger(__name__)
 def get_db_connection():
     """Create a new database connection for each request."""
     try:
-        conn = sqlite3.connect('Newdb.db')
-        return conn
-    except sqlite3.Error as e:
+        engine = create_engine(DATABASE_URL)
+        session = Session(engine)
+        return session
+    except Exception as e:
         logger.error(f"Database connection error: {e}")
         raise HTTPException(status_code=500, detail="Database connection failed")
 
@@ -82,12 +85,11 @@ def get_available_categories() -> list:
     """Fetch all unique categories from the products table."""
     conn = get_db_connection()
     try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT DISTINCT category FROM products WHERE category IS NOT NULL")
+        cursor = conn.execute("SELECT DISTINCT category FROM products WHERE category IS NOT NULL")
         categories = cursor.fetchall()
         available_categories = [cat[0] for cat in categories if cat[0]]
         return available_categories
-    except sqlite3.Error as e:
+    except Exception as e:
         logger.error(f"Database error in get_available_categories: {e}")
         return []
     finally:
@@ -155,7 +157,7 @@ def analyze_text_with_llm(transcribed_text: str) -> dict:
             if not description:
                 description = "Looking good! Ready for some snacks?"
         
-        return description, category
+        return {"description": description, "category": category}
         
     except Exception as e:
         logger.error(f"Error calling OpenAI API: {e}")
